@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:int-http="http://www.springframework.org/schema/integration/http"
+       xmlns:int="http://www.springframework.org/schema/integration"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://www.springframework.org/schema/integration/http
+       http://www.springframework.org/schema/integration/http/spring-integration-http.xsd">
+
+    <int-http:inbound-gateway
+            request-channel="inputChannel"
+            supported-methods="GET"
+            path="/country/{ISOCode}"
+            request-payload-type="java.lang.String"
+            payload-expression="#pathVariables.ISOCode"
+            reply-channel="outputChannel"
+            error-channel="error_channel"
+    />
+    <int-http:inbound-gateway
+            request-channel="inputChannel"
+            supported-methods="GET"
+            path="/country/{ISOCode}/{UUID}"
+            request-payload-type="java.lang.String"
+            payload-expression='#pathVariables.ISOCode + "," +#pathVariables.UUID'
+            reply-channel="outputChannel"
+            error-channel="error_channel"
+    />
+
+    <int-http:inbound-gateway
+            request-channel="transactionChannel"
+            supported-methods="GET"
+            path="/transaction/all"
+            reply-channel="outputChannel"
+            error-channel="errorChannel"
+    />
+
+    <int-http:inbound-gateway
+            request-channel="ibanRequest"
+            supported-methods="GET"
+            path="/iban/{iban}"
+            request-payload-type="java.lang.String"
+            payload-expression='#pathVariables.iban'
+            reply-channel="outputChannel"
+            error-channel="error_channel"
+    />
+
+    <int-http:inbound-gateway
+            request-channel="ibanRequest"
+            supported-methods="GET"
+            path="/"
+            request-payload-type="java.lang.String"
+            payload-expression="#requestParams.get('iban')"
+            reply-channel="outputChannel"
+            error-channel="error_channel"
+    />
+
+    <int-http:inbound-gateway
+            request-channel="isoChannel"
+            supported-methods="GET"
+            path="/iso8583/{message}"
+            request-payload-type="java.lang.String"
+            payload-expression="#pathVariables.message"
+            reply-channel="outputChannel"
+            error-channel="error_channel"
+    />
+
+    <int:chain input-channel="inputChannel" output-channel="outputChannel">
+        <int:filter  ref="codeFilter" discard-channel="dropRequest"/>
+        <int:service-activator ref="soapService" method="checkUuid" requires-reply="false"/>
+        <int:transformer ref="customTransformer" method="transform"/>
+        <int:service-activator ref="soapService" method="getResponse" requires-reply="false" />
+        <int:transformer ref="customTransformer" method="responseTransform"/>
+        <int:object-to-json-transformer/>
+    </int:chain>
+
+    <int:chain input-channel="ibanRequest" output-channel="outputChannel">
+        <int:filter ref="accountNumberFilter" discard-channel="dropChannel"/>
+        <int:service-activator ref="soapService" method="getIban"/>
+    </int:chain>
+
+    <int:chain input-channel="isoChannel" output-channel="outputChannel">
+        <int:service-activator ref="soapService" method="unpackIsoMessage"/>
+        <int:object-to-json-transformer/>
+    </int:chain>
+
+    <int:transformer input-channel="error_channel" output-channel="outputChannel" ref="handling" method="test"/>
+    <int:service-activator input-channel="dropChannel" requires-reply="false" ref="soapService" method="failTransaction"/>
+    <int:service-activator input-channel="transactionChannel"
+                           requires-reply="false"
+                           output-channel="outputChannel"
+                           ref="soapService"
+                           method="getTransactions"/>
+
+    <bean class="com.example.integration.filter.CodeFilter" id="codeFilter"/>
+    <bean class="com.example.integration.filter.AccountNumberFilter" id="accountNumberFilter"/>
+    <bean class="com.example.integration.transformer.CustomTransformer" id="customTransformer"/>
+    <bean class="com.example.integration.service.RequestService" id="soapService"/>
+    <bean class="com.example.integration.exception.ExceptionHandling" id="handling"/>
+
+    <int:channel id="outputChannel"/>
+    <int:channel id="dropRequest"/>
+    <int:channel id="isoChannel"/>
+
+</beans>
