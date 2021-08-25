@@ -1,2 +1,2 @@
-# spring-integration
+# service-integration
 
